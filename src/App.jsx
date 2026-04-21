@@ -53,20 +53,10 @@ function App() {
         console.log("Sending location payload:", lat, lon);
         setCurrentLocation({lat, lon});
         
-        // Inform emergency contacts
-        if (userProfile && (userProfile.contact1Phone || userProfile.contact2Phone)) {
-          const message = `EMERGENCY ALERT: This is an automated message from ${userProfile.fullName}. I have been involved in an emergency! My current location is: https://maps.google.com/?q=${lat},${lon}`;
-          console.log(`%c[ALERT] Sending SMS to Emergency Contacts: ${userProfile.contact1Name} (${userProfile.contact1Phone}) & ${userProfile.contact2Name} (${userProfile.contact2Phone})`, "color: red; font-size: 16px; font-weight: bold;");
-
-          if (userProfile.contact1Phone) {
-            const phone1 = userProfile.contact1Phone.replace(/\D/g, '');
-            if(phone1) window.open(`https://wa.me/${phone1}?text=${encodeURIComponent(message)}`, '_blank');
-          }
-          if (userProfile.contact2Phone) {
-            const phone2 = userProfile.contact2Phone.replace(/\D/g, '');
-            if(phone2) setTimeout(() => window.open(`https://wa.me/${phone2}?text=${encodeURIComponent(message)}`, '_blank'), 500);
-          }
-        }
+        // Delegate to backend for automatic sending without browser restrictions
+        let contactsList = [];
+        if (userProfile && userProfile.contact1Phone) contactsList.push(userProfile.contact1Phone);
+        if (userProfile && userProfile.contact2Phone) contactsList.push(userProfile.contact2Phone);
 
         const response = await fetch('https://acd-backend-o3kh.onrender.com/api/v1/events/create', {
           method: 'POST',
@@ -80,7 +70,8 @@ function App() {
             lat: lat,
             lon: lon,
             source: 'auto',
-            // Ideally we'd send userProfile details here if backend supports it
+            userFullName: userProfile ? userProfile.fullName : 'A User',
+            contacts: contactsList
           })
         });
         const data = await response.json();
@@ -185,20 +176,9 @@ function App() {
                 <h2 style={{ fontSize: '1.8rem', color: '#ef4444', marginBottom: '10px' }}>Alert Sent!</h2>
                 <p style={{ color: 'var(--text-muted)' }}>Emergency services coordinates sent.</p>
                 <p style={{ color: '#fbbf24', marginTop: '10px', fontSize: '0.9rem', marginBottom: '20px' }}>
-                  Auto-opening WhatsApp for {userProfile.contact1Name} & {userProfile.contact2Name}...
+                  Notified securely via backend: {userProfile.contact1Name} & {userProfile.contact2Name}
                 </p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {userProfile.contact1Phone && (
-                     <a href={`https://wa.me/${userProfile.contact1Phone.replace(/\D/g, '')}?text=${encodeURIComponent(`EMERGENCY ALERT: This is an automated message from ${userProfile.fullName}. I have been involved in an emergency! My current location is: https://maps.google.com/?q=${currentLocation?.lat},${currentLocation?.lon}`)}`} target="_blank" rel="noreferrer" className="btn btn-medical" style={{textDecoration: 'none'}}>
-                        Send to {userProfile.contact1Name}
-                     </a>
-                  )}
-                  {userProfile.contact2Phone && (
-                     <a href={`https://wa.me/${userProfile.contact2Phone.replace(/\D/g, '')}?text=${encodeURIComponent(`EMERGENCY ALERT: This is an automated message from ${userProfile.fullName}. I have been involved in an emergency! My current location is: https://maps.google.com/?q=${currentLocation?.lat},${currentLocation?.lon}`)}`} target="_blank" rel="noreferrer" className="btn btn-medical" style={{textDecoration: 'none'}}>
-                        Send to {userProfile.contact2Name}
-                     </a>
-                  )}
-                </div>
+                
                 <button className="btn btn-cancel" style={{ width: '100%', padding: '16px', background: 'rgba(255,255,255,0.05)', color: 'white', borderRadius: '12px', marginTop: '20px' }} onClick={cancelAlert}>
                   DISMISS
                 </button>
