@@ -1,9 +1,22 @@
 import React, { useState, useEffect } from 'react';
+import ProfileForm from './components/ProfileForm';
 
 function App() {
   const [isCrashed, setIsCrashed] = useState(false);
   const [countdown, setCountdown] = useState(10);
   const [alertSent, setAlertSent] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
+  const [isProfileLoaded, setIsProfileLoaded] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState(null);
+
+  useEffect(() => {
+    const storedProfile = localStorage.getItem('userProfile');
+    if (storedProfile) {
+      setUserProfile(JSON.parse(storedProfile));
+    }
+    setIsProfileLoaded(true);
+  }, []);
 
   useEffect(() => {
     let timer;
@@ -35,10 +48,27 @@ function App() {
         setIsCrashed(false);
         return;
       }
-        
+
       try {
         console.log("Sending location payload:", lat, lon);
-        const response = await fetch('http://localhost:8000/api/v1/events/create', {
+        setCurrentLocation({lat, lon});
+        
+        // Inform emergency contacts
+        if (userProfile && (userProfile.contact1Phone || userProfile.contact2Phone)) {
+          const message = `EMERGENCY ALERT: This is an automated message from ${userProfile.fullName}. I have been involved in an emergency! My current location is: https://maps.google.com/?q=${lat},${lon}`;
+          console.log(`%c[ALERT] Sending SMS to Emergency Contacts: ${userProfile.contact1Name} (${userProfile.contact1Phone}) & ${userProfile.contact2Name} (${userProfile.contact2Phone})`, "color: red; font-size: 16px; font-weight: bold;");
+
+          if (userProfile.contact1Phone) {
+            const phone1 = userProfile.contact1Phone.replace(/\D/g, '');
+            if(phone1) window.open(`https://wa.me/${phone1}?text=${encodeURIComponent(message)}`, '_blank');
+          }
+          if (userProfile.contact2Phone) {
+            const phone2 = userProfile.contact2Phone.replace(/\D/g, '');
+            if(phone2) setTimeout(() => window.open(`https://wa.me/${phone2}?text=${encodeURIComponent(message)}`, '_blank'), 500);
+          }
+        }
+
+        const response = await fetch('https://acd-backend-o3kh.onrender.com/api/v1/events/create', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -49,7 +79,8 @@ function App() {
             severity: 3,
             lat: lat,
             lon: lon,
-            source: 'auto'
+            source: 'auto',
+            // Ideally we'd send userProfile details here if backend supports it
           })
         });
         const data = await response.json();
@@ -59,7 +90,7 @@ function App() {
       }
       setTimeout(() => {
         setIsCrashed(false);
-      }, 3000);
+      }, 5000); // Wait 5 seconds after sent to reset
     };
 
     if ("geolocation" in navigator) {
@@ -76,8 +107,7 @@ function App() {
           } else if (error.code === 3) {
             alert("Location request timed out.");
           }
-          // TEMP: removed fallback while debugging so we fix the real issue!
-          setIsCrashed(false); 
+          setIsCrashed(false);
         },
         { enableHighAccuracy: true, timeout: 15000 }
       );
@@ -87,11 +117,31 @@ function App() {
     }
   };
 
+  const handleProfileComplete = (profile) => {
+    setUserProfile(profile);
+    setIsEditingProfile(false);
+  };
+
+  if (!isProfileLoaded) {
+    return <div>Loading...</div>;
+  }
+
+  if (!userProfile || isEditingProfile) {
+    return <ProfileForm onComplete={handleProfileComplete} initialData={userProfile} onCancel={userProfile ? () => setIsEditingProfile(false) : null} />;
+  }
+
   return (
     <>
-      <div className="app-header">
-        <h1 className="app-title">Accident Response</h1>
-        <p className="app-subtitle">Sensor monitoring active &bull; Network connected</p>
+      <div className="app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1 className="app-title">Accident Response</h1>
+          <p className="app-subtitle">Sensor monitoring active &bull; Network connected</p>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <p style={{ margin: 0, fontWeight: 'bold' }}>{userProfile.fullName}</p>
+          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Blood: {userProfile.bloodGroup || 'N/A'}</p>
+          <button style={{ background: 'transparent', border: 'none', color: '#3b82f6', textDecoration: 'underline', fontSize: '0.8rem', cursor: 'pointer', marginTop: '4px' }} onClick={() => setIsEditingProfile(true)}>Edit Profile</button>
+        </div>
       </div>
 
       <div className="glass-panel">
@@ -107,8 +157,8 @@ function App() {
           <div className="radar-ring"></div>
           <div className="radar-ring"></div>
           <div className="radar-ring"></div>
-          
-          <button 
+
+          <button
             className={`sos-button ${alertSent ? 'sos-active' : ''}`}
             onClick={simulateCrash}
           >
@@ -131,21 +181,39 @@ function App() {
           <div className="crash-alert">
             <div className="warn-icon">⚠️</div>
             {alertSent ? (
-               <>
-                 <h2 style={{ fontSize: '1.8rem', color: '#ef4444', marginBottom: '10px' }}>Dispatched!</h2>
-                 <p style={{ color: 'var(--text-muted)' }}>Emergency services coordinates sent. Wait for help.</p>
-               </>
+              <>
+                <h2 style={{ fontSize: '1.8rem', color: '#ef4444', marginBottom: '10px' }}>Alert Sent!</h2>
+                <p style={{ color: 'var(--text-muted)' }}>Emergency services coordinates sent.</p>
+                <p style={{ color: '#fbbf24', marginTop: '10px', fontSize: '0.9rem', marginBottom: '20px' }}>
+                  Auto-opening WhatsApp for {userProfile.contact1Name} & {userProfile.contact2Name}...
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {userProfile.contact1Phone && (
+                     <a href={`https://wa.me/${userProfile.contact1Phone.replace(/\D/g, '')}?text=${encodeURIComponent(`EMERGENCY ALERT: This is an automated message from ${userProfile.fullName}. I have been involved in an emergency! My current location is: https://maps.google.com/?q=${currentLocation?.lat},${currentLocation?.lon}`)}`} target="_blank" rel="noreferrer" className="btn btn-medical" style={{textDecoration: 'none'}}>
+                        Send to {userProfile.contact1Name}
+                     </a>
+                  )}
+                  {userProfile.contact2Phone && (
+                     <a href={`https://wa.me/${userProfile.contact2Phone.replace(/\D/g, '')}?text=${encodeURIComponent(`EMERGENCY ALERT: This is an automated message from ${userProfile.fullName}. I have been involved in an emergency! My current location is: https://maps.google.com/?q=${currentLocation?.lat},${currentLocation?.lon}`)}`} target="_blank" rel="noreferrer" className="btn btn-medical" style={{textDecoration: 'none'}}>
+                        Send to {userProfile.contact2Name}
+                     </a>
+                  )}
+                </div>
+                <button className="btn btn-cancel" style={{ width: '100%', padding: '16px', background: 'rgba(255,255,255,0.05)', color: 'white', borderRadius: '12px', marginTop: '20px' }} onClick={cancelAlert}>
+                  DISMISS
+                </button>
+              </>
             ) : (
-                <>
-                  <h2 style={{ fontSize: '1.8rem', color: '#fff' }}>Crash Detected!</h2>
-                  <p style={{ color: 'var(--text-muted)', marginTop: '10px' }}>Alerting authorities and contacts in...</p>
-                  
-                  <div className="timer">{countdown}s</div>
-                  
-                  <button className="btn btn-cancel" style={{ width: '100%', padding: '16px', background: 'rgba(255,255,255,0.05)', color: 'white', borderRadius: '12px' }} onClick={cancelAlert}>
-                    I'M OKAY (CANCEL ALERT)
-                  </button>
-                </>
+              <>
+                <h2 style={{ fontSize: '1.8rem', color: '#fff' }}>Crash Detected!</h2>
+                <p style={{ color: 'var(--text-muted)', marginTop: '10px' }}>Alerting authorities and contacts in...</p>
+
+                <div className="timer">{countdown}s</div>
+
+                <button className="btn btn-cancel" style={{ width: '100%', padding: '16px', background: 'rgba(255,255,255,0.05)', color: 'white', borderRadius: '12px' }} onClick={cancelAlert}>
+                  I'M OKAY (CANCEL ALERT)
+                </button>
+              </>
             )}
           </div>
         </div>
